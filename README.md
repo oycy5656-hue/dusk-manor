@@ -1,126 +1,62 @@
-# 新纽约 / NEW NEW YORK 2077
+﻿# 夏延热度 / CHEYENNE HEAT
 
-建在真实纽约五区数据上的赛博朋克城市运营 / 模拟 / 战术原型。
+多人文字犯罪跑团：管理员导入玩家，玩家提交一句话行动，判官裁定结果；每个账号看到的地图与情报都不一样。
 
-![新纽约五区](docs/preview.png)
+## 架构
 
-## 当前版本
+- **前端**：React + Vite，静态文件（可发 GitHub Pages）
+- **服务端**：Node 原生 HTTP + JSON 数据库，负责账号、会话、玩家状态、行动裁定、管理员接口
+- **地图**：真实 OpenStreetMap 夏延数据（13,896 条道路 / 9,621 栋建筑 / 346 个地点），按玩家知识过滤显示
 
-- **2077 世界观**：新纽约，新美国联邦拥有最高主权，公司/媒体/工会/帮派/车队只渗透街区与产业节点
-- **全五区**：赫利俄斯曼哈顿、布鲁克林自由区、皇后工业弧、布朗克斯荒原、斯塔滕隔离区
-- **778 km²** 真实陆地
-- **1,082,349 栋** NYC 建筑总量（按视口流式加载）
-- **262 个真实社区边界**（作为旧纽约历史社区保留）
-- **5,890 段主要街道**静态加载，普通街道独立按视口流式加载
-- **763 个主要公园 / 开放空间**
-- 建筑来自 NYC Open Data 真实轮廓，带 BIN / BBL / 建造年份 / 层数 / 屋顶高度
-- **113 个 2077 关键地点**：曼哈顿 33 个，布鲁克林、皇后区、布朗克斯、斯塔滕岛各 20 个；包含赫利俄斯塔、夜莺穹顶、自由塔、中央绿洲、自由协议纪念塔等
-- **多势力渗透**：区主权归新美国联邦，赫利俄斯、夜莺、铁工联、潮汐帮、荒原车队和市政厅按街区/产业占比分布；曼哈顿核心控制度 86%
-- **机场**：自由港国际机场（JFK）、北岸空港（LGA），带跑道与机场标签层
+> GitHub Pages 只能托管静态文件，账号与共享状态必须有服务端。线上页面在连不到服务端时会提示，这是正常的。
 
-## 视口流式加载
-
-不再一次性加载整座城市的建筑：
-
-1. 五区边界、社区边界、主要道路、公园、地标先加载
-2. 地图缩放超过阈值后，按 **500m × 500m 瓦片**请求当前视口
-3. 建筑瓦片和道路瓦片分别请求，互不依赖
-4. 内存缓存，最多保留 140 个瓦片
-5. 缩放/拖动时只补缺失瓦片，不重复请求
-6. 低缩放级别不加载单体建筑，只显示五区、社区、主要路网和公园
-
-建筑和道路的请求直接走 NYC 官方 ArcGIS 服务：
-
-`https://a841-dotweb01.nyc.gov/arcgis/rest/services/GAZETTEER/NYCDOTBaseMap_Street/MapServer`
-
-## 数据来源
-
-- [NYC Building Footprints](https://data.cityofnewyork.us/City-Government/BUILDING/5zhs-2jue)
-- [NYC Street Centerline (LION)](https://data.cityofnewyork.us/City-Government/Centerline/inkn-q76z)
-- [NYC Borough Boundaries](https://data.cityofnewyork.us/City-Government/Borough-Boundaries/gthc-hcne)
-- [NYC Neighborhood Tabulation Areas 2020](https://a841-dotweb01.nyc.gov/arcgis/rest/services/GAZETTEER/Neighborhood_Tabulation_Areas_2020/MapServer)
-- NYC DOT Base Map / Parks & Open Space
-
-五区范围：`-74.27, 40.49, -73.69, 40.92`（WGS84），访问时间 2026-11-18。
-
-建筑高度优先使用 `HEIGHT_ROOF`（英尺 → 米），缺失时用 `NUM_FLOORS × 3.2m`。材质根据建造年份和高度推断，不是官方分类。
-
-游戏城区、势力、事件和经营数值是虚构覆盖层。
-
-## 功能
-
-- **全五区地图**：真实海岸线、河流、岛屿、行政区与社区边界
-- **真实社区边界**：NTA 作为旧纽约历史社区保留
-- **视口建筑流**：缩放后逐块出现真实建筑
-- **LOD**：远景五区/社区/主要路网，中景流式建筑，近景独立建筑轮廓与屋顶
-- **五区**：赫利俄斯曼哈顿、布鲁克林自由区、皇后工业弧、布朗克斯荒原、斯塔滕隔离区
-- **2077 地标**：40 个公司化 / 赛博朋克化地标，其中 12 个带全息光环与光柱
-- **搜索**：按 2077 名称或旧纽约真实名称搜索并聚焦
-- **经营**：五区税率、治安预算、基建预算、日结算
-- **模拟**：日期 / 时间推进、暂停 / 1× / 2× / 4×
-- **战术**：事件列表、行动单位、战术选择、成功率、控制度与威胁变化
-- **档案**：城区、势力与城市历史
-
-## 本地开发
+## 本地运行（推荐）
 
 ```bash
-npm install
-npm run dev      # http://localhost:5188/city-zero/
-npm run build
-npm run preview
+node node_modules/vite/bin/vite.js build   # 构建前端
+node server/index.mjs                     # 启动服务端（默认 8788）
 ```
 
-要求 Node.js 20+。
+打开 http://localhost:8788 —— 服务端同时托管前端与 API，同源，无跨域问题。
 
-## 数据管线
+初始管理员：`admin` / `cheyenne`（可用环境变量覆盖），管理员令牌：`cheyenne-admin`。
 
-```bash
-node tools/fetch-nyc-all.mjs   # 拉取五区边界、主要道路、主要公园、NTA 社区
-node tools/build-nyc-all.mjs   # 投影、简化、生成 src/data/nyc-map.json
-```
+## 部署到公网
 
-建筑和普通街道不下载入库，由浏览器按视口实时请求。
+1. **Render / Railway / Fly.io**：仓库里有 `Dockerfile` 和 `render.yaml`，新建 Web Service 指向本目录即可，端口 8788。
+2. **任意 VPS**：`docker build -t cheyenne . && docker run -p 8788:8788 cheyenne`
+3. **反向代理**：Nginx/Caddy 把 80/443 转到 8788；前端用相对地址，天然同源。
 
-## 结构
+部署后把站点地址发给玩家，玩家登录页「服务器地址」留空即同源可用。
 
-```text
-src/
-├─ App.jsx                 游戏外壳、状态、经营与战术
-├─ styles.css              HUD / 面板 / 移动端
-├─ data/
-│  ├─ city.js              对外数据入口、势力、事件、战术
-│  ├─ nyc.js               真实地图数据入口
-│  ├─ nyc-map.json         五区、社区、主要道路、公园、地标
-│  └─ nyc-district-meta.json
-├─ map/
-│  ├─ generator.js         静态图层 + 建筑空间索引 + 流式建筑标准化
-│  ├─ stream.js            500m 瓦片请求与投影
-│  ├─ renderer.js          Canvas 地图、真实多边形建筑、社区、街名
-│  └─ MapCanvas.jsx        相机 / 交互 / 视口流式加载
-└─ components/
-   ├─ TopBar.jsx
-   ├─ DistrictRail.jsx
-   ├─ DistrictInspector.jsx
-   └─ CommandPanels.jsx
-```
+## 管理员怎么用
 
-## 性能
+1. 登录页切到「管理员」，令牌 `cheyenne-admin`
+2. 「导入玩家」粘贴 JSON 数组：
+   ```json
+   [{"username":"mike","password":"pass123","name":"迈克","cash":800}]
+   ```
+3. 玩家列表里可以：推送情报（可含虚假信息）、改现金、改通缉度
+4. 「世界时间」推进 30 分钟 / 3 小时 / 12 小时
 
-- 拖动/滚轮时使用画面快照做位图平移缩放，停手后才完整重绘
-- 拖拽期间暂停建筑与道路瓦片请求
-- 低缩放建筑使用包围盒 LOD，近景才使用真实多边形和 2.5D
-- 建筑阴影仅在近景绘制
-- 道路瓦片合并后抽稀到 8m 节点
-- 渲染限制约 30fps，DPR 上限 1.5
-- 瓦片索引重建做 90ms 合并
-- 实测：中景约 90fps，拖拽约 70fps，近景约 40–60fps（1440×900 headless，取决于加载瓦片数量）
-- 首屏只加载约 2.4MB 的静态底图
-- 建筑不进入首屏 bundle
-- 视口瓦片缓存，最多 140 个
-- 建筑按 500m 网格建立空间索引
-- 低缩放不加载单体建筑
-- 真实街名只在 1.0 以上缩放显示
+## 判官能识别
 
-## 说明
+移动（按距离算时间）、抢劫便利店/银行（看有没有枪、通缉度）、买枪、销赃、打听情报、接联系人任务、躲藏降通缉、睡觉、观察踩点；触发警察盘查时挂起三选一事件（配合/逃跑/塞钱）。
 
-建筑、街道、社区、公园几何来自纽约市公开数据；游戏城区、经营数值、事件和势力为虚构创作。
+无法识别的行动会返回可执行建议。
+
+## 信息不对等
+
+玩家档案里存 `knowledge`：
+
+- `places`：已知地点（开局 4 个，去过的附近会解锁，打听会新增）
+- `rumors` / `notes`：传闻与笔记，管理员推送的情报也混在这里
+- 地图只渲染已知地点，其余是空白
+
+## 数据
+
+- `server/db.json`：账号、玩家、会话、世界时间（首次运行自动创建）
+- `server/map.json`：城市数据副本
+- 重新拉取地图：`node tools/fetch-map.mjs`（Overpass 公共服务器较慢，可重试）
+
+地图数据 © OpenStreetMap contributors，ODbL。

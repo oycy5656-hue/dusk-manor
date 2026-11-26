@@ -1,416 +1,401 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import TopBar from './components/TopBar.jsx'
-import DistrictRail from './components/DistrictRail.jsx'
-import DistrictInspector from './components/DistrictInspector.jsx'
-import CommandPanels from './components/CommandPanels.jsx'
-import MapCanvas from './map/MapCanvas.jsx'
-import { getCityData } from './map/generator.js'
-import { CITY, DISTRICTS, INCIDENTS, SQUADS, TACTICS, WORLD } from './data/city.js'
+import React, { useEffect, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import './styles.css'
+import { api, getServer, setServer, setToken, getToken, loadStaticMap, resolveServer } from './api.js'
+import DashMap from './ui/DashMap.jsx'
 
-const initialDistricts = DISTRICTS.map((district, index) => ({
-  ...district,
-  infra: [78, 54, 48, 36, 42][index] ?? 50,
-}))
-
-const initialLog = [
-  { id: 1, time: '23:47', district: 'manhattan', text: '赫利俄斯塔进入夜间警戒。', tone: 'info' },
-  { id: 2, time: '23:31', district: 'brooklyn', text: '自由区码头报告不明货柜。', tone: 'warn' },
-  { id: 3, time: '22:58', district: 'bronx', text: '铁工联炼化厂压力下降 14%。', tone: 'danger' },
-  { id: 4, time: '22:12', district: 'queens', text: '自由港雷达再次离线。', tone: 'info' },
-]
-
-function formatTime(city) {
-  return `${String(city.hour).padStart(2, '0')}:${String(city.minute).padStart(2, '0')}`
+const money = (n) => `$${Math.round(n || 0).toLocaleString('en-US')}`
+const clock = (day, time) => {
+  const hh = String(Math.floor((time % 1440) / 60)).padStart(2, '0')
+  const mm = String(Math.floor(time % 60)).padStart(2, '0')
+  return `第${day}天 ${hh}:${mm}`
+}
+const TYPE_LABEL = {
+  bank: '银行', police: '警局', hospital: '医院', clinic: '诊所', store: '商店', fuel: '加油站',
+  food: '餐馆', bar: '酒吧', pharmacy: '药房', pawn: '当铺', weapons: '枪店', garage: '修车厂',
+  dealer: '车行', motel: '旅馆', hardware: '五金', court: '法院', civic: '市政', museum: '博物馆',
+  monument: '纪念地', attraction: '景点', transit: '车站', contact: '联系人',
 }
 
-export default function App() {
-  const data = useMemo(() => getCityData(), [])
-  const mapRef = useRef(null)
-  const [booting, setBooting] = useState(true)
-  const [panel, setPanel] = useState('map')
-  const [city, setCity] = useState(CITY)
-  const [districts, setDistricts] = useState(initialDistricts)
-  const [selectedDistrict, setSelectedDistrict] = useState('manhattan')
-  const [selectedPoi, setSelectedPoi] = useState(null)
-  const [focusRequest, setFocusRequest] = useState(null)
-  const [speed, setSpeed] = useState(1)
-  const [layers, setLayers] = useState({
-    districts: true,
-    pois: true,
-    traffic: true,
-    grid: true,
-  })
-  const [incidents, setIncidents] = useState(INCIDENTS)
-  const [combatResult, setCombatResult] = useState(null)
-  const [log, setLog] = useState(initialLog)
-  const [toast, setToast] = useState('')
-  const [search, setSearch] = useState('')
+function Login({ onAuth }) {
+  const [mode, setMode] = useState('player')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [adminToken, setAdminToken] = useState('')
+  const [server, setServerState] = useState(getServer())
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const selected = districts.find((district) => district.id === selectedDistrict) || districts[0]
-  const population = districts.reduce((sum, district) => sum + district.population, 0)
-  const stability = Math.round(
-    districts.reduce((sum, district) => sum + (100 - district.unrest * 0.62) * district.population, 0) / population,
-  )
-
-  const results = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return []
-    const districtResults = districts
-      .filter((district) => `${district.name} ${district.realName || ''} ${district.en} ${district.type}`.toLowerCase().includes(query))
-      .map((district) => ({
-        type: 'district',
-        id: district.id,
-        name: district.name,
-        en: district.en,
-      }))
-    const poiResults = data.pois
-      .filter((poi) => `${poi.name} ${poi.alias || ''} ${poi.realName || ''} ${poi.en}`.toLowerCase().includes(query))
-      .map((poi) => ({
-        type: 'poi',
-        id: poi.id,
-        name: poi.name,
-        en: poi.en,
-        districtId: poi.district,
-        poi,
-      }))
-    return [...districtResults, ...poiResults].slice(0, 7)
-  }, [search, districts, data])
-
-  useEffect(() => {
-    const timer = setTimeout(() => setBooting(false), 1250)
-    return () => clearTimeout(timer)
-  }, [])
-
-  useEffect(() => {
-    if (!toast) return
-    const timer = setTimeout(() => setToast(''), 3200)
-    return () => clearTimeout(timer)
-  }, [toast])
-
-  useEffect(() => {
-    if (!speed) return
-    const timer = setInterval(() => {
-      setCity((current) => {
-        const total = current.hour * 60 + current.minute + 5 * speed
-        const days = Math.floor(total / 1440)
-        const minute = total % 1440
-        return {
-          ...current,
-          day: current.day + days,
-          hour: Math.floor(minute / 60),
-          minute: minute % 60,
-        }
-      })
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [speed])
-
-  const pushLog = (text, districtId = null, tone = 'info') => {
-    setLog((current) => [
-      {
-        id: Date.now() + Math.random(),
-        time: formatTime(city),
-        district: districtId,
-        text,
-        tone,
-      },
-      ...current,
-    ].slice(0, 30))
-  }
-
-  const patchDistrict = (id, patch) => {
-    setDistricts((current) =>
-      current.map((district) => (district.id === id ? { ...district, ...patch } : district)),
-    )
-  }
-
-  const selectDistrict = (id) => {
-    setSelectedDistrict(id)
-    setSelectedPoi(null)
-    setPanel('map')
-  }
-
-  const focusDistrict = (id) => {
-    if (!id) return
-    setSelectedDistrict(id)
-    setSelectedPoi(null)
-    setFocusRequest({ districtId: id, ts: Date.now() })
-  }
-
-  const handleSelectPoi = (poi) => {
-    if (!poi) {
-      setSelectedPoi(null)
-      return
-    }
-    setSelectedPoi(poi)
-    setSelectedDistrict(poi.district)
-  }
-
-  const handleSelectResult = (result) => {
-    setSearch('')
-    if (result.type === 'district') {
-      focusDistrict(result.id)
-    } else {
-      setSelectedPoi(result.poi)
-      setSelectedDistrict(result.districtId)
-      setFocusRequest({
-        x: result.poi.x,
-        y: result.poi.y,
-        scale: 0.42,
-        ts: Date.now(),
-      })
-    }
-  }
-
-  const handleDistrictAction = (action, districtId) => {
-    const district = districts.find((item) => item.id === districtId)
-    if (!district) return
-    if (action === 'invest') {
-      if (city.credits < 250000) {
-        setToast('资金不足。')
-        return
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      if (mode === 'player') {
+        const res = await api.login(username.trim(), password)
+        setToken(res.token)
+        onAuth({ role: res.role, player: res.player })
+      } else {
+        const res = await api.adminLogin(adminToken.trim())
+        setToken(res.token)
+        onAuth({ role: 'admin' })
       }
-      setCity((current) => ({ ...current, credits: current.credits - 250000 }))
-      patchDistrict(districtId, {
-        economy: Math.min(100, district.economy + 3),
-        control: Math.min(100, district.control + 2),
-        unrest: Math.max(0, district.unrest - 1),
-        infra: Math.min(100, district.infra + 2),
-      })
-      pushLog(`向${district.name}注入 25 万基建资金。`, districtId, 'success')
-      setToast(`${district.name} 基建投资已到账。`)
-      return
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
     }
-    if (action === 'patrol') {
-      if (city.credits < 90000) {
-        setToast('资金不足。')
-        return
-      }
-      setCity((current) => ({ ...current, credits: current.credits - 90000 }))
-      patchDistrict(districtId, {
-        security: Math.min(100, district.security + 5),
-        threat: Math.max(0, district.threat - 2),
-        unrest: Math.max(0, district.unrest - 3),
-      })
-      pushLog(`向${district.name}增派巡逻单位。`, districtId, 'success')
-      setToast(`${district.name} 巡逻已部署。`)
-      return
-    }
-    if (action === 'negotiate') {
-      if (city.credits < 60000) {
-        setToast('资金不足。')
-        return
-      }
-      setCity((current) => ({ ...current, credits: current.credits - 60000 }))
-      patchDistrict(districtId, {
-        threat: Math.max(0, district.threat - 4),
-        unrest: Math.max(0, district.unrest - 2),
-        control: Math.min(100, district.control + 1),
-      })
-      pushLog(`在${district.name}启动一次闭门谈判。`, districtId, 'info')
-      setToast(`${district.name} 的紧张局势暂时缓和。`)
-    }
-  }
-
-  const updateDistrict = (id, patch) => {
-    patchDistrict(id, patch)
-  }
-
-  const advanceDay = () => {
-    let net = 0
-    const nextDistricts = districts.map((district) => {
-      const revenue = Math.round((district.population / 10000) * district.economy * (district.tax / 100) * 50)
-      const upkeep = Math.round((district.population / 10000) * 38 + (100 - district.infra) * 260)
-      net += revenue - upkeep
-      const securityDrift = district.security < 38 ? 1 : district.security > 68 ? -1 : 0
-      const infraDrift = district.infra > 60 ? 1 : district.infra < 30 ? -2 : -1
-      return {
-        ...district,
-        security: Math.max(0, Math.min(100, district.security + securityDrift)),
-        infra: Math.max(0, Math.min(100, district.infra + infraDrift)),
-        unrest: Math.max(
-          0,
-          Math.min(100, district.unrest + (district.security < 40 ? 2 : -1) + (district.tax > 20 ? 1 : 0)),
-        ),
-        control: Math.max(
-          0,
-          Math.min(100, district.control + (district.security > 60 ? 1 : 0) - (district.unrest > 55 ? 1 : 0)),
-        ),
-        threat: Math.max(0, Math.min(100, district.threat + Math.round((Math.random() - 0.5) * 7))),
-      }
-    })
-    setDistricts(nextDistricts)
-    setCity((current) => ({
-      ...current,
-      credits: Math.max(0, current.credits + net),
-      day: current.day + 1,
-      hour: 6,
-      minute: 0,
-    }))
-    pushLog(`市政结算完成。日净收益 ${net >= 0 ? '+' : ''}${Math.round(net / 1000)}K。`, null, net >= 0 ? 'success' : 'danger')
-    setToast(`第 ${city.day} 日结算完成。`)
-    if (incidents.length === 0) {
-      setIncidents(INCIDENTS.slice(0, 3))
-    }
-  }
-
-  const resolveIncident = ({ incidentId, squadId, tacticId }) => {
-    const incident = incidents.find((item) => item.id === incidentId)
-    const squad = SQUADS.find((item) => item.id === squadId)
-    const tactic = TACTICS.find((item) => item.id === tacticId)
-    if (!incident || !squad || !tactic) return
-    if (city.credits < tactic.cost) {
-      setToast('资金不足，无法执行这次行动。')
-      return
-    }
-    setCombatResult(null)
-    const roll = Math.random() * 12
-    const success = squad.power + tactic.power + roll - incident.threat * 5 >= 8
-    const district = districts.find((item) => item.id === incident.district)
-    if (success) {
-      setIncidents((current) => current.filter((item) => item.id !== incident.id))
-      setCity((current) => ({
-        ...current,
-        credits: current.credits + incident.reward - tactic.cost,
-      }))
-      patchDistrict(incident.district, {
-        control: Math.min(100, district.control + tactic.control),
-        threat: Math.max(0, district.threat + tactic.threat),
-        unrest: Math.max(0, district.unrest - 2),
-      })
-      setCombatResult({
-        success: true,
-        title: '行动成功',
-        text: `${squad.name}完成“${incident.title}”。目标区域恢复控制，${district.name}的街头暂时安静下来。`,
-        control: tactic.control,
-        threat: tactic.threat,
-        credits: incident.reward - tactic.cost,
-      })
-      pushLog(`“${incident.title}”已解决。`, incident.district, 'success')
-      setToast('行动成功，报酬已入账。')
-    } else {
-      setCity((current) => ({ ...current, credits: Math.max(0, current.credits - tactic.cost) }))
-      patchDistrict(incident.district, {
-        control: Math.max(0, district.control - 4),
-        threat: Math.min(100, district.threat + 3),
-      })
-      setCombatResult({
-        success: false,
-        title: '行动失败',
-        text: `${squad.name}在${district.name}遭遇顽强抵抗，被迫撤离。目标仍在活动，城区控制度下降。`,
-        control: -4,
-        threat: 3,
-        credits: -tactic.cost,
-      })
-      pushLog(`“${incident.title}”行动失败。`, incident.district, 'danger')
-      setToast('行动失败。')
-    }
-  }
-
-  const toggleLayer = (key) => {
-    setLayers((current) => ({ ...current, [key]: !current[key] }))
   }
 
   return (
-    <div className="game">
-      <TopBar
-        city={city}
-        population={population}
-        stability={stability}
-        speed={speed}
-        setSpeed={setSpeed}
-        panel={panel}
-        setPanel={setPanel}
-        search={search}
-        setSearch={setSearch}
-        results={results}
-        onSelectResult={handleSelectResult}
-        layers={layers}
-        toggleLayer={toggleLayer}
-      />
-
-      <main className="game-body">
-        <MapCanvas
-          ref={mapRef}
-          data={data}
-          selectedDistrict={selectedDistrict}
-          onSelectDistrict={selectDistrict}
-          selectedPoi={selectedPoi}
-          onSelectPoi={handleSelectPoi}
-          layers={layers}
-          focusRequest={focusRequest}
-        />
-
-        <DistrictRail
-          districts={districts}
-          selectedDistrict={selectedDistrict}
-          onSelect={selectDistrict}
-          onFocus={focusDistrict}
-          stability={stability}
-        />
-
-        <DistrictInspector
-          district={selected}
-          poi={selectedPoi}
-          city={city}
-          log={log}
-          onAction={handleDistrictAction}
-          onFocus={focusDistrict}
-          onFocusPoi={(poi) =>
-            setFocusRequest({ x: poi.x, y: poi.y, scale: 0.46, ts: Date.now() })
-          }
-          onClosePoi={() => setSelectedPoi(null)}
-        />
-
-        <div className="mobile-districts" aria-label="城区快速选择">
-          {districts.map((district) => (
-            <button
-              key={district.id}
-              className={selectedDistrict === district.id ? 'is-active' : ''}
-              style={{ '--district-color': district.color }}
-              onClick={() => selectDistrict(district.id)}
-            >
-              <i />
-              <span>{district.name}</span>
-              <em>{district.control}%</em>
-            </button>
-          ))}
+    <div className="login">
+      <div className="login__panel">
+        <p className="eyebrow">CHEYENNE HEAT · 多人跑团</p>
+        <h1>夏延热度</h1>
+        <p className="muted small">
+          管理员导入玩家，玩家提交行动，判官按规则与运气给出结果。每个账号知道的夏延都不一样。
+        </p>
+        <div className="tabs">
+          <button className={mode === 'player' ? 'is-active' : ''} onClick={() => setMode('player')}>玩家</button>
+          <button className={mode === 'admin' ? 'is-active' : ''} onClick={() => setMode('admin')}>管理员</button>
         </div>
-
-        {panel !== 'map' && (
-          <CommandPanels
-            panel={panel}
-            districts={districts}
-            city={city}
-            incidents={incidents}
-            onUpdateDistrict={updateDistrict}
-            onEndDay={advanceDay}
-            onResolve={resolveIncident}
-            combatResult={combatResult}
-            onClose={() => setPanel('map')}
-          />
-        )}
-      </main>
-
-      {toast && <div className="game-toast">{toast}</div>}
-
-      {booting && (
-        <div className="boot-screen">
-          <div className="boot-screen__grid" aria-hidden="true" />
-          <div className="boot-screen__inner">
-            <span className="boot-screen__mark">NY</span>
-            <p className="hud-label">NEW NEW YORK / 2077</p>
-            <h1>新纽约</h1>
-            <p>正在载入五区边界与社区数据 · {data.stats.buildings.toLocaleString('zh-CN')} 栋建筑按视口加载</p>
-            <div className="boot-screen__bar"><i /></div>
-            <div className="boot-screen__meta">
-              <span>GRID {Math.round(WORLD.width / 100) / 10} × {Math.round(WORLD.height / 100) / 10} KM</span>
-              <span>SECTOR LINK 05</span>
-              <span>AUTHORITY 7A</span>
+        <form onSubmit={submit} className="form">
+          {mode === 'player' ? (
+            <>
+              <label>账号<input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" /></label>
+              <label>密码<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" /></label>
+            </>
+          ) : (
+            <label>管理员令牌<input value={adminToken} onChange={(e) => setAdminToken(e.target.value)} placeholder="默认 cheyenne-admin" /></label>
+          )}
+          <label className="server-field">
+            服务器地址
+            <div className="row">
+              <input value={server} onChange={(e) => setServerState(e.target.value)} />
+              <button type="button" className="btn btn--small" onClick={() => { setServer(server); setError('已保存服务器地址') }}>保存</button>
             </div>
-          </div>
-        </div>
-      )}
+          </label>
+          {error && <p className="error">{error}</p>}
+          <button className="btn btn--primary" disabled={busy}>{busy ? '连接中…' : '登录'}</button>
+        </form>
+        <p className="hint">
+          本地启动：<code>node server/index.mjs</code>（默认 8788 端口）。线上页面需要把服务器地址指向可访问的隧道地址。
+        </p>
+      </div>
     </div>
   )
 }
+
+function PlayerDash({ player, auth, onLogout, onRefresh }) {
+  const [mapData, setMapData] = useState(null)
+  const [city, setCity] = useState(null)
+  const [text, setText] = useState('')
+  const [result, setResult] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    loadStaticMap().then(setMapData).catch((e) => setError(e.message))
+  }, [])
+
+  useEffect(() => {
+    api.city().then(setCity).catch((e) => setError(e.message))
+  }, [player.knowledge.places.length])
+
+  const submit = async (actionText) => {
+    const value = (actionText ?? text).trim()
+    if (!value) return
+    setBusy(true)
+    setError('')
+    try {
+      const res = await api.act(value)
+      setResult({ text: value, narration: res.result.narration })
+      setText('')
+      onRefresh(res.player)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const choose = async (choice) => {
+    setBusy(true)
+    try {
+      const res = await api.choose(choice)
+      setResult((old) => ({ text: old?.text || '', narration: `${old?.narration || ''}\n\n${res.outcome}` }))
+      onRefresh(res.player)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const knownPlaces = city?.pois || []
+  const contacts = city?.contacts || []
+
+  return (
+    <div className="dash">
+      <header className="hud">
+        <div className="hud__title"><strong>夏延热度</strong><small>{auth.player?.name || player.name} 的档案</small></div>
+        <div className="hud__stat"><span>时间</span><b>{clock(player.day, player.time)}</b></div>
+        <div className="hud__stat"><span>现金</span><b className="cash">{money(player.cash)}</b></div>
+        <div className="hud__stat"><span>健康</span><b>{Math.round(player.health)}</b></div>
+        <div className="hud__stat hud__stat--heat"><span>通缉</span><div className="heat"><i style={{ width: `${player.heat}%` }} /></div><b>{Math.round(player.heat)}</b></div>
+        <div className="hud__stat"><span>位置</span><b>{player.place || '街上'}</b></div>
+        <div className="hud__right">
+          <button className="btn btn--small" onClick={() => api.me().then((r) => r.player && onRefresh(r.player))}>刷新</button>
+          <button className="btn btn--small btn--danger" onClick={onLogout}>退出</button>
+        </div>
+      </header>
+
+      <main className="layout">
+        <div className="layout__map">
+          <DashMap data={mapData} player={player} pois={knownPlaces} contacts={contacts} onPick={(poi) => setText(`去 ${poi.name}`)} />
+          <div className="map-note">你只知道你去过或听说过的地方。地图上没标出来的，不代表不存在。</div>
+        </div>
+
+        <aside className="layout__panel">
+          {player.pending ? (
+            <section className="pending-card">
+              <p className="eyebrow">需要你决定</p>
+              <h2>{player.pending.title}</h2>
+              <p className="muted small">{player.pending.text}</p>
+              <div className="actions">
+                {player.pending.options.map((option) => (
+                  <button key={option.id} className="btn" disabled={busy} onClick={() => choose(option.id)}>{option.label}</button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="action-card">
+              <p className="eyebrow">行动</p>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="用一句话描述你要做什么，例如：开车去 Nelson Museum of the West，然后打听消息"
+                rows={3}
+              />
+              <div className="actions">
+                <button className="btn btn--primary" disabled={busy} onClick={() => submit()}>{busy ? '判官思考中…' : '提交行动'}</button>
+                <button className="btn btn--small" onClick={() => submit('打听消息')}>打听消息</button>
+                <button className="btn btn--small" onClick={() => submit('躲起来避风头')}>避风头</button>
+                <button className="btn btn--small" onClick={() => submit('找一个联系人接活')}>接活</button>
+                <button className="btn btn--small" onClick={() => submit('原地观察一会儿')}>观察</button>
+              </div>
+              {error && <p className="error">{error}</p>}
+            </section>
+          )}
+
+          {result && (
+            <section className="outcome">
+              <p className="eyebrow">判官回执</p>
+              <p className="outcome__action">你：「{result.text}」</p>
+              <pre className="outcome__text">{result.narration}</pre>
+            </section>
+          )}
+
+          <section className="panel-block">
+            <p className="eyebrow">任务</p>
+            {player.missions.length === 0 && <p className="muted small">没有在身的任务。联系一个联系人试试。</p>}
+            {player.missions.map((m) => (
+              <div key={m.id} className="mission">
+                <strong>{m.title}</strong>
+                <small>{m.giver} · {m.step}</small>
+              </div>
+            ))}
+          </section>
+
+          <section className="panel-block">
+            <p className="eyebrow">载具</p>
+            {player.vehicle ? (
+              <div className="vehicle">
+                <strong>{player.vehicle.name}</strong>
+                <div className="vehicle__stat"><span>油量</span><div className="bar"><i style={{ width: `${player.vehicle.fuel}%` }} /></div><b>{Math.round(player.vehicle.fuel)}%</b></div>
+                <div className="vehicle__stat"><span>车况</span><div className="bar bar--blue"><i style={{ width: `${player.vehicle.condition}%` }} /></div><b>{Math.round(player.vehicle.condition)}%</b></div>
+              </div>
+            ) : <p className="muted small">你没有车。走路也行，就是慢。</p>}
+          </section>
+
+          <section className="panel-block">
+            <p className="eyebrow">情报（{knownPlaces.length} 个已知地点）</p>
+            <div className="rumors">
+              {[...(player.knowledge.rumors || [])].reverse().slice(0, 6).map((r, i) => (
+                <p key={i} className="rumor">{r.text}</p>
+              ))}
+              {(player.knowledge.notes || []).slice(-6).reverse().map((n, i) => (
+                <p key={`n${i}`} className="rumor rumor--note">{n.text}</p>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel-block panel-block--log">
+            <p className="eyebrow">记录</p>
+            <div className="history">
+              {player.history.slice(0, 20).map((h, i) => (
+                <p key={i} className={`history__line history__line--${h.kind}`}>
+                  <span>{clock(h.day, h.time)}</span>{h.text}
+                </p>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+  )
+}
+
+function AdminDash({ onLogout }) {
+  const [players, setPlayers] = useState([])
+  const [world, setWorld] = useState(null)
+  const [importText, setImportText] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const refresh = async () => {
+    try {
+      const res = await api.admin.players()
+      setPlayers(res.players)
+      setWorld(res.world)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  useEffect(() => { refresh() }, [])
+
+  const doImport = async () => {
+    setError('')
+    setMessage('')
+    try {
+      const parsed = JSON.parse(importText)
+      const list = Array.isArray(parsed) ? parsed : [parsed]
+      const res = await api.admin.importPlayers(list)
+      setMessage(`创建 ${res.created.length} 人${res.failed.length ? `，失败 ${res.failed.length} 人：${res.failed.map((f) => `${f.username}(${f.reason})`).join('、')}` : ''}`)
+      setImportText('')
+      refresh()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="admin">
+      <header className="hud">
+        <div className="hud__title"><strong>夏延热度</strong><small>管理员后台</small></div>
+        {world && <div className="hud__stat"><span>时间</span><b>{clock(world.day, world.time)}</b></div>}
+        <div className="hud__stat"><span>玩家</span><b>{players.length}</b></div>
+        <div className="hud__right">
+          <button className="btn btn--small" onClick={refresh}>刷新</button>
+          <button className="btn btn--small btn--danger" onClick={onLogout}>退出</button>
+        </div>
+      </header>
+
+      <main className="admin__grid">
+        <section className="admin__card">
+          <p className="eyebrow">导入玩家</p>
+          <p className="muted small">粘贴 JSON 数组，例如：</p>
+          <pre className="code">{'[{"username":"mike","password":"pass123","name":"迈克","cash":800}]'}</pre>
+          <textarea rows={5} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder='[{"username":"...","password":"...","name":"..."}]' />
+          <button className="btn btn--primary" onClick={doImport}>导入</button>
+          {message && <p className="ok">{message}</p>}
+          {error && <p className="error">{error}</p>}
+        </section>
+
+        <section className="admin__card">
+          <p className="eyebrow">世界时间</p>
+          {world && <p className="muted">现在是 {clock(world.day, world.time)}</p>}
+          <div className="actions">
+            <button className="btn" onClick={() => api.admin.world({ tick: 1 }).then(refresh)}>推进 30 分钟</button>
+            <button className="btn" onClick={() => api.admin.world({ tick: 6 }).then(refresh)}>推进 3 小时</button>
+            <button className="btn" onClick={() => api.admin.world({ tick: 24 }).then(refresh)}>推进 12 小时</button>
+          </div>
+        </section>
+
+        <section className="admin__card admin__card--wide">
+          <p className="eyebrow">玩家列表</p>
+          <table className="table">
+            <thead>
+              <tr><th>ID</th><th>账号</th><th>名字</th><th>现金</th><th>通缉</th><th>位置</th><th>任务</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              {players.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.id}</td>
+                  <td>{p.username}</td>
+                  <td>{p.name}</td>
+                  <td className="cash">{money(p.cash)}</td>
+                  <td>{Math.round(p.heat)}</td>
+                  <td>{p.place || '街上'}</td>
+                  <td>{p.missions}</td>
+                  <td className="admin__actions">
+                    <button className="btn btn--small" onClick={async () => {
+                      const text = window.prompt('要推送给这个玩家的情报：')
+                      if (!text) return
+                      await api.admin.intel(p.id, text)
+                      refresh()
+                    }}>推送情报</button>
+                    <button className="btn btn--small" onClick={async () => {
+                      const value = window.prompt('设置现金：', String(p.cash))
+                      if (value === null) return
+                      await api.admin.resolve(p.id, { cash: Number(value) })
+                      refresh()
+                    }}>改钱</button>
+                    <button className="btn btn--small" onClick={async () => {
+                      const value = window.prompt('设置通缉度（0-100）：', String(p.heat))
+                      if (value === null) return
+                      await api.admin.resolve(p.id, { heat: Number(value) })
+                      refresh()
+                    }}>改通缉</button>
+                  </td>
+                </tr>
+              ))}
+              {players.length === 0 && <tr><td colSpan={8} className="muted">还没有玩家。先导入。</td></tr>}
+            </tbody>
+          </table>
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function App() {
+  const [auth, setAuth] = useState(null)
+  const [booting, setBooting] = useState(!!getToken())
+  const [serverReady, setServerReady] = useState(false)
+
+  useEffect(() => {
+    resolveServer().finally(() => setServerReady(true))
+  }, [])
+
+  useEffect(() => {
+    if (!serverReady) return
+    if (!getToken()) { setBooting(false); return }
+    api.me().then((res) => {
+      if (res.role === 'player') setAuth({ role: 'player', player: res.player })
+      else setAuth({ role: 'admin' })
+    }).catch(() => setToken('')).finally(() => setBooting(false))
+  }, [serverReady])
+
+  if (!serverReady || booting) return <div className="boot">正在连接服务器…</div>
+
+  if (!auth) {
+    return <Login onAuth={(next) => setAuth(next)} />
+  }
+
+  if (auth.role === 'admin') {
+    return <AdminDash onLogout={() => { setToken(''); setAuth(null) }} />
+  }
+
+  return (
+    <PlayerDash
+      player={auth.player}
+      auth={auth}
+      onRefresh={(player) => setAuth((old) => ({ ...old, player }))}
+      onLogout={() => { setToken(''); setAuth(null) }}
+    />
+  )
+}
+
+createRoot(document.getElementById('root')).render(<App />)

@@ -1,0 +1,12 @@
+﻿services:
+  - type: web
+    name: cheyenne-heat
+    runtime: docker
+    plan: free
+    envVars:
+      - key: ADMIN_TOKEN
+        value: cheyenne-admin
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASS
+        value: cheyenne

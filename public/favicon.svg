@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" fill="#05080b"/>
-  <path d="M12 8h40v34l-10 14H12V8Z" fill="#53e0d0"/>
-  <path d="M40 8v22h12" fill="#05080b"/>
-  <text x="32" y="38" font-family="Consolas,monospace" font-size="18" font-weight="700" text-anchor="middle" fill="#05080b">CZ</text>
-</svg>

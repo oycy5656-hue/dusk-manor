@@ -1,0 +1,6 @@
+node_modules
+dist
+.tmp-build
+docs
+.env.deploy
+server/db.json
