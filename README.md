@@ -1,4 +1,13 @@
-﻿# 夏延热度 / CHEYENNE HEAT
+﻿---
+title: Cheyenne Heat
+emoji: 🎲
+colorFrom: gray
+colorTo: yellow
+sdk: docker
+app_port: 7860
+pinned: false
+---
+# 夏延热度 / CHEYENNE HEAT
 
 多人文字犯罪跑团：管理员导入玩家，玩家提交一句话行动，判官裁定结果；每个账号看到的地图与情报都不一样。
 
@@ -60,3 +69,4 @@ node server/index.mjs                     # 启动服务端（默认 8788）
 - 重新拉取地图：`node tools/fetch-map.mjs`（Overpass 公共服务器较慢，可重试）
 
 地图数据 © OpenStreetMap contributors，ODbL。
+
